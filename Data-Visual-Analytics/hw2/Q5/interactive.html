@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<script src="../lib/d3.v5.min.js"></script>
+<script src="../lib/d3-dsv.min.js"></script>
+
+
+<body>
+<script>
+    const parseTime = d3.timeParse("%Y");
+    var rg = [], yr = [], nested, maxCount, xScale, yScale, line, reg,
+        chartData, chartX, chartY, tickY = [], scaleY, yStep, y;
+
+    const colors = ["green","purple","blue","red"];
+
+    const margin = { top: 50, right: 50, bottom: 50, left: 50},
+        height = 550 - margin.top - margin.bottom,
+        width = 800 - margin.left - margin.right;
+
+    var svg = d3.select("body")
+        .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", 2*(height + margin.top + margin.bottom))
+        .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+    var svg2;
+
+    d3.dsv(",", "state-year-earthquakes.csv", function(d){
+        return {
+            state: d.state,
+            region: d.region,
+            year: parseTime(d.year.toString()),
+            count: parseInt(d.count)
+        };
+    }).then(function(data){
+        //console.log(data);
+        nested = d3.nest()
+            .key(function(d){
+                return d.region;
+            }).key(function(d){
+                return d.year.getFullYear();
+            }).rollup(function(leaves){
+                return {count: d3.sum(leaves, function(d){
+                    return d.count;
+                    })};
+            }).entries(data);
+
+        // get regions
+        nested.forEach(function(d){
+            rg.push(d.key);
+        });
+
+        // get years
+        nested[0].values.forEach(function(d){
+            yr.push(d.key);
+        });
+
+        // get max number of earthquakes
+        maxCount = d3.max(nested, function(d1){
+            return d3.max(d1.values, function(d2){
+                return d2.value.count;
+            });
+        });
+
+        // set xScale, yScale and line for further usage
+        xScale=d3.scaleTime()
+            .domain([
+                d3.min(data,function(d){return d.year;}),
+                d3.max(data,function(d){return d.year;})
+            ])
+            .range([0, width]);
+
+        yScale = d3.scaleLinear()
+            .domain([0, maxCount])
+            .range([height, 0]);
+
+        line = d3.line()
+            .x(function(d){
+                return xScale(parseTime(d.key));
+            }).y(function(d){
+                return yScale(d.value.count);
+            });
+
+        // draw the axises
+        svg.append("g")
+            .attr("class", "x axis")
+            .attr("transform", "translate(0," + height + ")")
+            .call(d3.axisBottom(xScale)); // Create an axis component with d3.axisBottom
+
+        svg.append("g")
+            .attr("class", "y axis")
+            .call(d3.axisLeft(yScale)); // Create an axis component with d3.axisLeft
+
+        // draw the lines
+        nested.forEach(function(d, i){
+            svg.append("path")
+                .datum(d.values) // 10. Binds data to the line
+                .attr("class", "line" + i.toString()) // Assign a class for styling
+                .attr("d", line) // 11. Calls the line generator
+                .style("stroke", function(c){
+                    return colors[i];
+                })
+                .style("fill", "none")
+                .style("stroke-width", "2");
+        });
+
+        // add legend
+        svg.selectAll("legend")
+            .data(nested)
+            .enter()
+            .append("rect")
+            .attr("x", width-100)
+            .attr("y", function(d,i){
+                return i * 20;
+            })
+            .attr("width", 20)
+            .attr("height", 16)
+            .style("fill", function(d,i){
+                return colors[i];
+            });
+        svg.selectAll("legend")
+            .data(nested)
+            .enter()
+            .append("text")
+            .attr("x", width - 100 + 22)
+            .attr("y", function(d,i){
+                return i * 20 + 12;
+            })
+            .text(function(d){
+                return d.key;
+            })
+            .attr("text-anchor", "left")
+            .style("alignment-based", "middle");
+
+        // add title
+        svg.append("text")
+            .attr("x", width/2)
+            .attr("y", -20)
+            .attr("text-anchor", "middle")
+            .style("font-size", "20px")
+            .text("US Earthquakes by Region 2010-2015");
+
+        // draw the points(circles)
+        for(var index=0; index < nested.length; index++ ){
+            svg.selectAll()
+                .data(nested[index].values)
+                .enter()
+                .append("circle")
+                .attr("cx", function(d){
+                    return xScale(parseTime(d.key.toString()));
+                }).attr("cy", function(d){
+                    return yScale(d.value.count);
+                }).attr("r", 4.5)
+                .style("fill", colors[index])
+                .style("stroke", "white")
+                .style("stroke-width", 2)
+                .attr("id", function(d){ return nested[index].key + "-" + d.key; })
+                .on("mouseover", function(){
+                    // console.log(this)
+                    d3.select(this)
+                        .attr("r", 9)
+                        .style("stroke-width",4);
+
+                    reg = this.id.split('-')[0];
+                    y =  this.id.split('-')[1];
+
+                    showBarChart(reg, y);
+
+                }).on("mouseout",function(){
+                    d3.select(this)
+                        .attr("r", 4.5)
+                        .style("stroke-width", 2);
+                    svg2.selectAll("*").remove();
+                });
+        }
+
+        function showBarChart(reg, y){
+            // proceed data
+            chartData = [];
+            data.forEach(function(d){
+                if (d.region === reg && d.year.getFullYear().toString() === y)
+                    chartData.push(d);
+            });
+            chartData.sort(function (a,b) {
+                if (a.count === b.count)
+                    return a.state < b.state;
+                return a.count < b.count;
+            });
+
+            // xScale
+            chartX = d3.scaleLinear()
+                .domain([d3.min(chartData, function(d){
+                    return d.count;
+                }), d3.max(chartData, function(d){
+                    return d.count;
+                })])
+                .range([0, width]);
+
+            // yScale
+            tickY = [];
+            chartData.forEach(function (d) {
+                tickY.push(d.state);
+            });
+
+            scaleY = [];
+            for (var i=0; i<tickY.length; i++)
+                scaleY.push(height / tickY.length * (i+0.5));
+
+            chartY = d3.scaleOrdinal()
+                .domain(tickY)
+                .range(scaleY);
+
+            // create a new svg2
+            svg2 = svg.append("g")
+                .attr("transform", "translate(" + margin.left + "," + (height + margin.bottom + margin.top) + ")");
+
+            // draw the axises
+            svg2.append("g")
+                .attr("class", "x axis")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(chartX)); // Create an axis component with d3.axisBottom
+
+            svg2.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(chartY)); // Create an axis component with d3.axisLeft
+
+            yStep = height / (chartData.length);
+
+            // draw charts
+            svg2.selectAll("rect")
+                .data(chartData)
+                .enter()
+                .append("rect")
+                .attr("x", 0)
+                .attr("y", function(d, i){
+                    return i * yStep + 3;
+                }).attr("width", function(d){
+                    return chartX(d.count);
+                }).attr("height", yStep -3)
+                .style("fill", "teal");
+
+            // add title
+            svg2.append("text")
+                .attr("x", width/2)
+                .attr("y", -20)
+                .attr("text-anchor", "middle")
+                .style("font-size", "20px")
+                .text(reg + "ern Region Earthquakes " + y.toString());
+        }
+
+    });
+
+
+    </script>
+</body>
+</html>
