@@ -1,0 +1,7 @@
+reviews = LOAD 's3://amazon-reviews-pds/tsv/*' AS (marketplace:chararray,customer_id:chararray,review_id:chararray,product_id:chararray,product_parent:chararray,product_title:chararray,product_category:chararray,star_rating:int,helpful_votes:int,total_votes:int,vine:chararray,verified_purchase:chararray,review_headline:chararray,review_body:chararray, review_date:chararray);
+A = FILTER reviews BY (total_votes >= 30) AND (verified_purchase == 'Y') AND (SIZE(review_body) >= 100);
+B = GROUP A BY product_category;
+C = FOREACH B GENERATE group AS product_category, (double)SUM($1.star_rating)/(double)COUNT($1.review_id) AS avg_rating;
+D = ORDER C BY avg_rating DESC, product_category ASC;
+E = limit D 15;
+STORE E INTO 's3://cse6242oan-2019fall-yding366/output1-big/' USING PigStorage ('\t');
